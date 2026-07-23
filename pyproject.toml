@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fpga-mcp"
+version = "0.1.0"
+description = "Open multi-vendor MCP server that drives Xilinx Vivado, Intel Quartus and Anlogic FPGA toolchains from your AI assistant."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "fpga-mcp contributors" }]
+keywords = ["mcp", "fpga", "vivado", "quartus", "anlogic", "eda", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "mcp>=1.0",
+    "anyio>=4.2",
+    "typer>=0.12",
+    "rich>=13.7",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "build>=1.2",
+    "hatchling>=1.21",
+]
+
+[project.urls]
+Homepage = "https://github.com/wmm246/fpga-mcp"
+Documentation = "https://github.com/wmm246/fpga-mcp#readme"
+Issues = "https://github.com/wmm246/fpga-mcp/issues"
+
+[project.scripts]
+fpga-mcp = "fpga_mcp.cli:app"
+fpga = "fpga_mcp.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fpga_mcp"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"tcl" = "fpga_mcp/tcl"
+"methodology" = "fpga_mcp/methodology"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+asyncio_mode = "auto"

@@ -1,0 +1,107 @@
+# docker-compose.yml — convenience launcher for fpga-mcp.
+#
+# Two profiles:
+#
+#   1. `stdio` (default) — runs the MCP server in stdio mode. Use this
+#      when an MCP client (Claude Desktop, Cursor, etc.) launches the
+#      container as a subprocess and talks to it over stdin/stdout.
+#
+#      docker compose up
+#
+#   2. `tunnel` — runs the MCP server with the env vars pointing at a
+#      Tcl TCP server running on the host. Use this when you have
+#      Vivado/Quartus/TangDynasty running on your machine and want the
+#      containerised MCP server to reach them.
+#
+#      docker compose --profile tunnel up
+#
+# The image is built locally from ./Dockerfile. To use a published image
+# instead, comment out `build:` and uncomment `image:`.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# Connecting MCP clients to the containerised server
+# ─────────────────────────────────────────────────────────────────────────
+#
+# Claude Desktop — add to claude_desktop_config.json:
+#   {
+#     "mcpServers": {
+#       "fpga-mcp": {
+#         "command": "docker",
+#         "args": ["compose", "-f", "/abs/path/to/fpga-mcp/docker-compose.yml",
+#                  "up", "-i", "--abort-on-container-exit"],
+#         "env": { "FPGA_MCP_ACTIVE_BACKEND": "vivado" }
+#       }
+#     }
+#   }
+#
+# Cursor — same shape, in .cursor/mcp.json:
+#   {
+#     "mcpServers": {
+#       "fpga-mcp": {
+#         "command": "docker",
+#         "args": ["compose", "-f", "/abs/path/to/fpga-mcp/docker-compose.yml",
+#                  "run", "--rm", "-i", "fpga-mcp"]
+#       }
+#     }
+#   }
+
+services:
+  fpga-mcp:
+    # image: ghcr.io/wmm246/fpga-mcp:latest   # uncomment to use published image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fpga-mcp
+    stdin_open: true
+    # `run` is the default CMD; it reads JSON-RPC from stdin and writes
+    # responses to stdout. No port needs to be exposed for stdio mode.
+    command: ["run"]
+    environment:
+      # Pick which backend is active by default. Override per-invocation.
+      FPGA_MCP_ACTIVE_BACKEND: vivado
+      # Default Tcl server hosts/ports. In stdio mode these are only used
+      # when a tool actually calls a backend.
+      FPGA_MCP_VIVADO_HOST: ${FPGA_MCP_VIVADO_HOST:-host.docker.internal}
+      FPGA_MCP_VIVADO_PORT: ${FPGA_MCP_VIVADO_PORT:-9999}
+      FPGA_MCP_QUARTUS_HOST: ${FPGA_MCP_QUARTUS_HOST:-host.docker.internal}
+      FPGA_MCP_QUARTUS_PORT: ${FPGA_MCP_QUARTUS_PORT:-9998}
+      FPGA_MCP_ANLOGIC_HOST: ${FPGA_MCP_ANLOGIC_HOST:-host.docker.internal}
+      FPGA_MCP_ANLOGIC_PORT: ${FPGA_MCP_ANLOGIC_PORT:-9997}
+      # Disable terminal colours inside the container (no TTY) — keeps
+      # logs readable. Set to "1" if running interactively.
+      FPGA_MCP_NO_COLOR: "1"
+    # When using --profile tunnel, expose ports so the host can verify
+    # reachability. In stdio mode these are unused.
+    ports:
+      - "9999:9999"   # vivado Tcl server (host -> container view)
+      - "9998:9998"   # quartus
+      - "9997:9997"   # anlogic
+    profiles: ["tunnel"]
+    restart: "no"
+
+  # Convenience one-shot targets -----------------------------------------
+  # These exist so `docker compose run --rm <name>` works for common
+  # CLI verbs. They share the same image as the main service.
+  version:
+    image: fpga-mcp:dev
+    build: { context: ., dockerfile: Dockerfile }
+    container_name: fpga-mcp-version
+    entrypoint: ["fpga-mcp"]
+    command: ["version"]
+    profiles: ["cli"]
+
+  backends:
+    image: fpga-mcp:dev
+    build: { context: ., dockerfile: Dockerfile }
+    container_name: fpga-mcp-backends
+    entrypoint: ["fpga-mcp"]
+    command: ["backends"]
+    profiles: ["cli"]
+
+  doctor:
+    image: fpga-mcp:dev
+    build: { context: ., dockerfile: Dockerfile }
+    container_name: fpga-mcp-doctor
+    entrypoint: ["fpga-mcp"]
+    command: ["doctor"]
+    profiles: ["cli"]

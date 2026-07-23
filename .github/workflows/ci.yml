@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Lint (ruff)
+        run: ruff check src tests
+
+      - name: Test (pytest)
+        run: pytest -ra
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    # Build dist artifacts on every CI run so we catch packaging regressions
+    # early. The actual PyPI upload only happens on tag pushes (see `release`).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install build
+      - name: Build sdist + wheel
+        run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  smoke:
+    # Cross-platform end-to-end smoke test: spin up the mock Tcl server
+    # three times (once per vendor) and drive each backend through a full
+    # create_project → add_sources → run_synthesis → report_timing flow.
+    # Catches OS-specific socket / encoding regressions that unit tests
+    # might miss.
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Run e2e smoke script
+        run: python scripts/smoke_e2e.py
+
+  examples:
+    # Run the verifiable example scripts end-to-end.
+    #   - timing_closure_demo: drives the broken → fix → re-verify loop,
+    #     asserts WNS_final >= 0.
+    #   - core_features_demo: drives every category of the EDABackend
+    #     contract (lifecycle, project, sources, synth, impl, IP, reports,
+    #     simulation, bitstream, programming, exec_tcl, session) through
+    #     the typed Python tools and asserts each one returns a
+    #     well-formed result. 14 phases; exits 0 only if all pass.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Run timing_closure_demo
+        run: python examples/timing_closure_demo/verify_timing_closure.py
+      - name: Run core_features_demo
+        run: python examples/core_features_demo/verify_core_features.py
+
+  docker:
+    # Build the Docker image. Doesn't push — push is handled by a
+    # separate workflow triggered on tag, or by maintainers manually.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: fpga-mcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke check the image
+        run: |
+          docker run --rm fpga-mcp:ci version
+          docker run --rm fpga-mcp:ci backends
+
+  release:
+    # Publish to PyPI when a `v*` tag is pushed. Requires two repo secrets:
+    #   PYPI_API_TOKEN  — a scoped PyPI upload token.
+    # Without these secrets the job is skipped silently (CI still passes).
+    needs: [build, smoke, examples, docker]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install twine
+          twine upload --skip-existing dist/*
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
+

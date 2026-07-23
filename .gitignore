@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+wheelhouse/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# uv
+.uv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# FPGA project artifacts
+*.xpr
+*.qpf
+*.qsf
+*.qar
+*.al
+*.alp
+*.bit
+*.bin
+*.ltx
+*.rpt
+*.log
+*.jou
+*.str
+*.summary
+*.pb
+*.bak
+Xilinx*/
+vivado_*/
+*.restore
+*_sim/
+*.wdb
+*.wcfg
+*.so
+*.so.*
+*.o
+*.obj
+*.tmp
+*.out
+
+# Project-local editor configs
+.claude/
+.cursor/

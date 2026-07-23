@@ -1,0 +1,80 @@
+# Version control
+.git
+.gitignore
+.github/
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
+
+# Test caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# CI / local state
+*.log
+*.tmp
+*.bak
+.cache/
+node_modules/
+
+# Local config that might leak secrets / paths
+*.env
+.env
+config.local.json
+fpga-mcp-config.local.json
+
+# Local project outputs — should not bake into the image
+out/
+*.xpr
+*.qpf
+*.qsf
+*.al
+*.bit
+*.ltx
+*.sof
+*.rpt
+*.log.*
+
+# Examples are useful for documentation but add weight; keep them out
+# of the runtime image (the README links to the repo for browsing).
+examples/
+
+# Docs are baked into the wheel via the README; no need for source.
+docs/
+*.md
+!README.md
+
+# Scripts are dev-only.
+scripts/
+
+# Tests are dev-only — wheel doesn't ship them.
+tests/
+
+# The Tcl + methodology directories ARE included because they're needed
+# at runtime by the MCP server (see pyproject.toml force-include). Keep
+# them — do NOT add `tcl/` or `methodology/` here.
