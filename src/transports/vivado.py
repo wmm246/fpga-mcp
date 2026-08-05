@@ -123,15 +123,18 @@ class VivadoBackend:
             vivado_path = str(detection.binary)
 
         # Locate the stdio bridge script relative to this package.
-        # src/fpga_mcp/transports/vivado.py -> ../../tcl/vivado_stdio_bridge.tcl
-        pkg_dir = Path(__file__).resolve().parent.parent  # fpga_mcp/
-        bridge = pkg_dir / "tcl" / "vivado_stdio_bridge.tcl"
-        # Also check project-root-relative (for development checkout).
-        if not bridge.exists():
-            bridge = pkg_dir.parent.parent / "tcl" / "vivado_stdio_bridge.tcl"
-        if not bridge.exists():
+        # Works for both installed (src/fpga_mcp/transports/) and dev
+        # checkout (src/transports/) layouts.
+        here = Path(__file__).resolve().parent  # transports/
+        candidates = [
+            here.parent / "tcl" / "vivado_stdio_bridge.tcl",          # fpga_mcp/tcl/
+            here.parent.parent / "tcl" / "vivado_stdio_bridge.tcl",    # src/tcl/
+            here.parent.parent.parent / "tcl" / "vivado_stdio_bridge.tcl",  # project/tcl/
+        ]
+        bridge = next((c for c in candidates if c.exists()), None)
+        if bridge is None:
             raise BackendError(
-                f"stdio bridge script not found. Expected at {bridge}"
+                f"stdio bridge script not found. Tried: {[str(c) for c in candidates]}"
             )
 
         return SubprocessTclClient(
