@@ -12,12 +12,18 @@ layer — everything here ships open.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from pathlib import Path
 
 from fpga_mcp.config import Config
-from fpga_mcp.transports._tcl_client import TclClient, TclClientError
+from fpga_mcp.detect import detect_vivado
+from fpga_mcp.transports._tcl_client import (
+    SubprocessTclClient,
+    TclClient,
+    TclClientError,
+)
 from fpga_mcp.transports.base import (
     BackendError,
     BackendNotConnectedError,
@@ -29,6 +35,8 @@ from fpga_mcp.transports.base import (
     UtilizationRow,
 )
 from fpga_mcp.transports.factory import register
+
+log = logging.getLogger("fpga_mcp.vivado")
 
 
 def _tcl_list(items) -> str:
@@ -61,20 +69,77 @@ def _tcl_quote(s: str) -> str:
 
 
 class VivadoBackend:
-    """Drives Xilinx Vivado over a local Tcl TCP server (port 9999)."""
+    """Drives Xilinx Vivado over a local Tcl TCP server (port 9999).
+
+    Two transport modes are supported:
+
+    * ``subprocess`` (default) — launches ``vivado -mode tcl`` as a
+      persistent subprocess with stdin/stdout pipes.  Does NOT require
+      a pre-started Tcl TCP server.  Works around Vivado's Tcl event
+      loop not processing ``socket -server`` callbacks.
+
+    * ``tcp`` — connects to a running Tcl TCP server on port 9999.
+      Faster (no subprocess startup), but requires the user to start
+      ``vivado -mode tcl -source tcl/vivado_server.tcl`` manually.
+    """
 
     name = "vivado"
 
     def __init__(self, config: Config):
         self._config = config
         b = config.backends
-        self._client = TclClient(
-            host=b.vivado_host,
-            port=b.vivado_port,
-            connect_timeout=5.0,
-            default_timeout=7200.0,  # 2h — long synth/impl runs
-        )
+
+        # Decide transport: "auto" tries subprocess first, then tcp.
+        transport = getattr(b, "vivado_transport", "auto")
+        if transport == "auto":
+            transport = "subprocess"  # default to subprocess for reliability
+
+        if transport == "subprocess":
+            self._client = self._make_subprocess_client(b)
+        else:
+            self._client = TclClient(
+                host=b.vivado_host,
+                port=b.vivado_port,
+                connect_timeout=5.0,
+                default_timeout=7200.0,
+            )
+        self._transport_mode = transport
         self._current: ProjectHandle | None = None
+
+    @staticmethod
+    def _make_subprocess_client(b) -> SubprocessTclClient:
+        """Create a SubprocessTclClient, auto-detecting Vivado if needed."""
+        vivado_path = b.vivado_path
+        if not vivado_path:
+            detection = detect_vivado()
+            if not detection.found or not detection.binary:
+                raise BackendNotConnectedError(
+                    "vivado",
+                    hint=(
+                        "Vivado binary not found. Set FPGA_MCP_VIVADO_PATH env "
+                        "var or install Vivado in a standard location."
+                    ),
+                )
+            vivado_path = str(detection.binary)
+
+        # Locate the stdio bridge script relative to this package.
+        # src/fpga_mcp/transports/vivado.py -> ../../tcl/vivado_stdio_bridge.tcl
+        pkg_dir = Path(__file__).resolve().parent.parent  # fpga_mcp/
+        bridge = pkg_dir / "tcl" / "vivado_stdio_bridge.tcl"
+        # Also check project-root-relative (for development checkout).
+        if not bridge.exists():
+            bridge = pkg_dir.parent.parent / "tcl" / "vivado_stdio_bridge.tcl"
+        if not bridge.exists():
+            raise BackendError(
+                f"stdio bridge script not found. Expected at {bridge}"
+            )
+
+        return SubprocessTclClient(
+            vivado_path=vivado_path,
+            bridge_script=str(bridge),
+            connect_timeout=120.0,  # Vivado can take 60+ seconds to start
+            default_timeout=7200.0,
+        )
 
     # --- lifecycle ---------------------------------------------------
 
@@ -82,16 +147,24 @@ class VivadoBackend:
         try:
             self._client.connect()
         except (TclClientError, OSError) as exc:
-            raise BackendNotConnectedError(
-                self.name,
-                hint=(
+            if self._transport_mode == "tcp":
+                hint = (
                     f"Could not reach Vivado Tcl server at "
                     f"{self._config.backends.vivado_host}:"
                     f"{self._config.backends.vivado_port}. Start it with:\n"
                     f"  vivado -mode tcl -source tcl/vivado_server.tcl\n"
+                    f"Or switch to subprocess mode (default) which does not "
+                    f"require a pre-started server.\n"
                     f"Original error: {exc}"
-                ),
-            ) from exc
+                )
+            else:
+                hint = (
+                    f"Could not start Vivado subprocess. Ensure Vivado is "
+                    f"installed and its path is set via FPGA_MCP_VIVADO_PATH "
+                    f"env var or detectable in standard locations.\n"
+                    f"Original error: {exc}"
+                )
+            raise BackendNotConnectedError(self.name, hint=hint) from exc
 
     def disconnect(self) -> None:
         self._client.disconnect()
