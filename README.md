@@ -32,7 +32,7 @@ proprietary) and its companion [oh-my-fpga](https://github.com/LNC0831/oh-my-fpg
 skill pack. fpga-mcp is the **open, multi-vendor** rewrite: MIT-licensed,
 one repo, three vendors, ~500+ tools just like SynthPilot — but with no
 edition gating and no closed-source tier.
-
+**mail:wmm246@qq.com**
 ## Why this exists
 
 | | SynthPilot + oh-my-fpga | **fpga-mcp** |
